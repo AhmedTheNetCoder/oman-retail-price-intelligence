@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
+import random
 
 # Page config
 st.set_page_config(
@@ -27,7 +28,184 @@ RETAILERS = {
     "nesto": {"name": "Nesto Hypermarket", "color": "#FF6B00"}
 }
 
-DATABASE_PATH = Path(__file__).parent / "data" / "prices.db"
+# Product data for generation
+PRODUCTS = {
+    "Rice & Grains": [
+        {"name": "India Gate Basmati Rice 5kg", "base_price": 4.500, "unit": "5kg"},
+        {"name": "Daawat Basmati Rice 5kg", "base_price": 4.200, "unit": "5kg"},
+        {"name": "Tilda Basmati Rice 5kg", "base_price": 5.100, "unit": "5kg"},
+        {"name": "Abu Kass Basmati Rice 5kg", "base_price": 3.900, "unit": "5kg"},
+        {"name": "Spaghetti Pasta 500g", "base_price": 0.450, "unit": "500g"},
+        {"name": "Penne Pasta 500g", "base_price": 0.480, "unit": "500g"},
+    ],
+    "Cooking Oil": [
+        {"name": "Sunflower Oil 1.5L", "base_price": 1.850, "unit": "1.5L"},
+        {"name": "Sunflower Oil 5L", "base_price": 5.200, "unit": "5L"},
+        {"name": "Olive Oil Extra Virgin 500ml", "base_price": 3.450, "unit": "500ml"},
+        {"name": "Corn Oil 1.5L", "base_price": 1.950, "unit": "1.5L"},
+        {"name": "Vegetable Oil 1.5L", "base_price": 1.650, "unit": "1.5L"},
+    ],
+    "Dairy & Eggs": [
+        {"name": "Fresh Milk Full Cream 1L", "base_price": 0.550, "unit": "1L"},
+        {"name": "Fresh Milk Low Fat 1L", "base_price": 0.580, "unit": "1L"},
+        {"name": "Eggs Large 30pcs", "base_price": 1.850, "unit": "30pcs"},
+        {"name": "Eggs Medium 30pcs", "base_price": 1.650, "unit": "30pcs"},
+        {"name": "Cheddar Cheese 200g", "base_price": 1.250, "unit": "200g"},
+        {"name": "Labneh 500g", "base_price": 1.100, "unit": "500g"},
+        {"name": "Greek Yogurt 500g", "base_price": 1.350, "unit": "500g"},
+    ],
+    "Beverages": [
+        {"name": "Mineral Water 1.5L 6pack", "base_price": 0.850, "unit": "6x1.5L"},
+        {"name": "Pepsi 2.25L", "base_price": 0.650, "unit": "2.25L"},
+        {"name": "Coca Cola 2.25L", "base_price": 0.680, "unit": "2.25L"},
+        {"name": "Orange Juice 1L", "base_price": 1.150, "unit": "1L"},
+        {"name": "Apple Juice 1L", "base_price": 1.200, "unit": "1L"},
+        {"name": "Red Bull 250ml 4pack", "base_price": 2.800, "unit": "4x250ml"},
+    ],
+    "Snacks": [
+        {"name": "Lays Chips 170g", "base_price": 0.750, "unit": "170g"},
+        {"name": "Pringles Original 165g", "base_price": 1.100, "unit": "165g"},
+        {"name": "Oreo Cookies 137g", "base_price": 0.650, "unit": "137g"},
+        {"name": "KitKat 4 Finger", "base_price": 0.350, "unit": "1pc"},
+        {"name": "Mixed Nuts 500g", "base_price": 3.500, "unit": "500g"},
+    ],
+    "Personal Care": [
+        {"name": "Dove Soap Bar 135g", "base_price": 0.550, "unit": "135g"},
+        {"name": "Head Shoulders Shampoo 400ml", "base_price": 2.850, "unit": "400ml"},
+        {"name": "Colgate Toothpaste 125ml", "base_price": 0.950, "unit": "125ml"},
+        {"name": "Dettol Handwash 200ml", "base_price": 1.100, "unit": "200ml"},
+        {"name": "Nivea Body Lotion 400ml", "base_price": 2.450, "unit": "400ml"},
+    ],
+    "Cleaning": [
+        {"name": "Tide Detergent 2.5kg", "base_price": 3.250, "unit": "2.5kg"},
+        {"name": "Ariel Detergent 2.5kg", "base_price": 3.450, "unit": "2.5kg"},
+        {"name": "Fairy Dish Soap 750ml", "base_price": 1.350, "unit": "750ml"},
+        {"name": "Dettol Floor Cleaner 1L", "base_price": 1.650, "unit": "1L"},
+        {"name": "Tissue Box 150 sheets", "base_price": 0.450, "unit": "150sheets"},
+    ],
+    "Baby Products": [
+        {"name": "Pampers Diapers Size 4 64pcs", "base_price": 6.500, "unit": "64pcs"},
+        {"name": "Huggies Diapers Size 4 60pcs", "base_price": 6.200, "unit": "60pcs"},
+        {"name": "Baby Wipes 72pcs", "base_price": 0.850, "unit": "72pcs"},
+        {"name": "Baby Formula S26 400g", "base_price": 4.850, "unit": "400g"},
+        {"name": "Cerelac Baby Cereal 400g", "base_price": 2.150, "unit": "400g"},
+    ],
+}
+
+# Database path
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+DATABASE_PATH = DATA_DIR / "prices.db"
+
+def init_database():
+    """Initialize the SQLite database with required tables."""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category TEXT,
+            unit TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER,
+            retailer TEXT NOT NULL,
+            price REAL NOT NULL,
+            currency TEXT DEFAULT 'OMR',
+            date TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+def generate_sample_data(days: int = 30):
+    """Generate sample price data for the past N days."""
+    init_database()
+
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+
+    # Clear existing data
+    cursor.execute("DELETE FROM prices")
+    cursor.execute("DELETE FROM products")
+    conn.commit()
+
+    product_id = 1
+    retailers = list(RETAILERS.keys())
+
+    for category, products in PRODUCTS.items():
+        for product in products:
+            cursor.execute(
+                "INSERT INTO products (id, name, category, unit) VALUES (?, ?, ?, ?)",
+                (product_id, product["name"], category, product["unit"])
+            )
+
+            base_price = product["base_price"]
+
+            for retailer in retailers:
+                retailer_base = base_price * random.uniform(0.95, 1.08)
+
+                for day_offset in range(days, -1, -1):
+                    date = (datetime.now() - timedelta(days=day_offset)).strftime("%Y-%m-%d")
+                    daily_variation = random.uniform(-0.02, 0.02)
+
+                    if random.random() < 0.10:
+                        promotion = random.uniform(-0.15, -0.05)
+                    else:
+                        promotion = 0
+
+                    inflation = (days - day_offset) * 0.0003
+                    final_price = retailer_base * (1 + daily_variation + promotion + inflation)
+                    final_price = round(max(final_price, 0.100), 3)
+
+                    cursor.execute(
+                        "INSERT INTO prices (product_id, retailer, price, date) VALUES (?, ?, ?, ?)",
+                        (product_id, retailer, final_price, date)
+                    )
+
+            product_id += 1
+
+    conn.commit()
+    conn.close()
+
+def check_and_init_db():
+    """Check if database exists and has data, if not generate it."""
+    if not DATABASE_PATH.exists():
+        with st.spinner("Initializing database with sample data..."):
+            generate_sample_data(30)
+        return True
+
+    # Check if tables have data
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM products")
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        if count == 0:
+            with st.spinner("Generating sample data..."):
+                generate_sample_data(30)
+            return True
+    except:
+        with st.spinner("Initializing database..."):
+            generate_sample_data(30)
+        return True
+
+    return False
+
+# Initialize database on app start
+check_and_init_db()
 
 # Database helper
 def query_db(sql: str, params: tuple = ()) -> pd.DataFrame:
@@ -204,6 +382,13 @@ with st.sidebar:
     st.caption("Oman Retail Price Intelligence")
     st.caption("Tracking prices across 4 major retailers")
 
+    # Regenerate data button
+    if st.button("Refresh Data"):
+        with st.spinner("Regenerating data..."):
+            generate_sample_data(30)
+        st.success("Data refreshed!")
+        st.rerun()
+
 # Main content
 if page == "Overview":
     st.markdown('<h1 class="main-header">Oman Retail Price Intelligence</h1>', unsafe_allow_html=True)
@@ -368,7 +553,7 @@ elif page == "Shopping Advisor":
         else:
             st.info("Select products to compare prices across stores.")
     else:
-        st.warning("No products found in database. Run data generation first.")
+        st.warning("No products found in database. Click 'Refresh Data' in sidebar.")
 
 elif page == "Price Tracker":
     st.header("Price Tracker")
